@@ -325,6 +325,248 @@ password: BewareOfAmpy
 ![Password Check](assets/password_check.png)
 
 ## Soal_2
+- Fungsi:
+  + dekripsi
+  + quarantine
+  + return
+  + erase
+  + shutdown
+melakukan download file, unzip file dan menjalankan daemon untuk dekripsi dengan menggunakan flag --decrypt
+```c
+void download_and_extract() {
+    ensure_directory_exists(STARTER_KIT);
+
+    char zip_path[300];
+    strcpy(zip_path, STARTER_KIT);
+    strcat(zip_path, "/starter_kit.zip");
+    const char *download_url = "https://drive.usercontent.google.com/u/0/uc?id=1_5GxIGfQr3mNKuavJbte_AoRkEQLXSKS&export=download";
+    char *wget_args[] = { "wget", "-O", zip_path, (char *)download_url, NULL };
+    pid_t pid = fork();
+    if(pid == 0) {
+        execvp("wget", wget_args);
+        perror("execvp failed untuk wget");
+        exit(EXIT_FAILURE);
+    } else if (pid > 0) {
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            fprintf(stderr, "Error saat mendownload starter_kit.zip\n");
+            return;
+        }
+    } else {
+        perror("Fork gagal untuk wget");
+        return;
+    }
+
+    char *unzip_args[] = { "unzip", "-o", zip_path, "-d", STARTER_KIT, NULL };
+    pid = fork();
+    if(pid == 0) {
+        execvp("unzip", unzip_args);
+        perror("execvp failed untuk unzip");
+        exit(EXIT_FAILURE);
+    } else if (pid > 0) {
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            fprintf(stderr, "Error saat mengekstrak starter_kit.zip\n");
+            return;
+        }
+    } else {
+        perror("Fork gagal untuk unzip");
+        return;
+    }
+
+    if (remove(zip_path) != 0) {
+        perror("Gagal menghapus file starter_kit.zip");
+    }
+}
+```
+- mengecek apakah folder starter_kit untuk meletakkan file download ada atau tidak, jika tidak ada maka dibuat terlebih dahulu
+- menggunakan `execvp("wget", wget_args);` untuk mendownload file dan `execvp("unzip", unzip_args);` untuk unzip file
+  + di child fork pertama dijalankan wget, lalu parentnya menunggu sampai proses selesai baru dilakukan fork kedua yang child nya meng-unzip file 
+
+```c
+void run_daemon() {
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("Fork gagal");
+        exit(EXIT_FAILURE);
+    }
+    if (pid > 0) {
+        exit(EXIT_SUCCESS);
+    }
+
+    umask(0);
+    if (setsid() < 0) exit(EXIT_FAILURE);
+    if (chdir("/") < 0) exit(EXIT_FAILURE);
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+
+    FILE *fp = fopen(PID_FILE, "w");
+    if (fp) {
+        char pid_str[30];
+        sprintf(pid_str, "%d", getpid());
+        fputs(pid_str, fp);
+        fclose(fp);
+    }
+    
+    char timestamp[50];
+    get_timestamp(timestamp, sizeof(timestamp));
+    char log_msg[300];
+    strcpy(log_msg, "Decrypt:\n");
+    strcat(log_msg, timestamp);
+    strcat(log_msg, " - Successfully started decryption process with PID ");
+    {
+        char temp[30];
+        sprintf(temp, "%d", getpid());
+        strcat(log_msg, temp);
+    }
+    strcat(log_msg, ".");
+    write_log(log_msg);
+
+    while (1) {
+        decrypt_files();
+        sleep(1);
+    }
+}
+```
+- ini menjalankan daemon untuk fungsi decrypt_files();
+```c
+void decrypt_files() {
+    DIR *dir = opendir(QUARANTINE_DIR);
+    if (!dir) {
+        perror("Gagal membuka direktori karantina");
+        printf("\nProses untuk membuat direktori karantina");
+        ensure_directory_exists(QUARANTINE_DIR);
+        printf("\nProses membuat direktori karantina selesai");
+        return;
+    }
+    struct dirent *entry;
+    char oldname[256], newname[256];
+    while ((entry = readdir(dir))) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        strcpy(oldname, QUARANTINE_DIR);
+        strcat(oldname, "/");
+        strcat(oldname, entry->d_name);
+
+        size_t output_length;
+        char *decoded = base64_decode(entry->d_name, strlen(entry->d_name), &output_length);
+        if (decoded) {
+            strcpy(newname, QUARANTINE_DIR);
+            strcat(newname, "/");
+            strcat(newname, decoded);
+            if (rename(oldname, newname) == 0) {
+                printf("Renamed: %s -> %s\n", entry->d_name, decoded);
+            } else {
+                perror("Gagal mengganti nama file");
+            }
+            free(decoded);
+        }
+    }
+    closedir(dir);
+}
+```
+- intinya ini mengambil nama file, lalu mendecryptntya dengan function base64_decode, lalu me-rename file sebelumnya, hanya saja, karna function ini dijalankan di daemon, maka proses rename nya ditambahkan quarantine/ di depannya agar location file nya di folder quarantine
+
+- Untuk quarantine dan return intinya adalah memindahkan file
+```c
+void move_files(const char *src, const char *dst, const char *op) {
+    ensure_directory_exists(src);
+    ensure_directory_exists(dst);
+    
+    DIR *dir = opendir(src);
+    if (!dir) {
+        perror("Gagal membuka direktori sumber");
+        return;
+    }
+    
+    char header[100];
+    strcpy(header, op);
+    strcat(header, ":");
+    write_log(header);
+    
+    struct dirent *entry;
+    char oldpath[256], newpath[256];
+    char log_msg[300];
+    char timestamp[50];
+    
+    while ((entry = readdir(dir))) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        strcpy(oldpath, src);
+        strcat(oldpath, "/");
+        strcat(oldpath, entry->d_name);
+
+        strcpy(newpath, dst);
+        strcat(newpath, "/");
+        strcat(newpath, entry->d_name);
+
+        if (rename(oldpath, newpath) == 0) {
+            printf("Moved: %s -> %s\n", entry->d_name, dst);
+            get_timestamp(timestamp, sizeof(timestamp));
+            if (strcmp(op, "Quarantine") == 0) {
+                strcpy(log_msg, timestamp);
+                strcat(log_msg, " - ");
+                strcat(log_msg, entry->d_name);
+                strcat(log_msg, " - Successfully moved to quarantine directory.");
+            } else if (strcmp(op, "Return") == 0) {
+                strcpy(log_msg, timestamp);
+                strcat(log_msg, " - ");
+                strcat(log_msg, entry->d_name);
+                strcat(log_msg, " - Successfully returned to starter kit directory.");
+            }
+            write_log(log_msg);
+        } else {
+            perror("Gagal memindahkan file");
+        }
+    }
+    closedir(dir);
+}
+```
+- di sini dicek path source dan path location, jika tidak ada maka dibuat folder nya
+- just in case gabisa dibuat, maka ga bisa dibuka, dan dioutput pesan gagal membuka direktori sumber
+- di sini konsepnya merename file, lebih tepatnya merename path file, bagian awalnya diubah (misal source/file.exe jadi target/file.exe)
+
+- untuk fungsi eradicate(), --eradicate, ini simpelnya menghapus semua file yang ada di folder quarantine
+- buka folder, mengeluarkan 1/1 file ke filepath, lalu remove filepath
+
+```c
+void shutdown_daemon() {
+    FILE *fp = fopen(PID_FILE, "r");
+    if (!fp) {
+        fprintf(stderr, "PID file tidak ditemukan. Apakah daemon sedang berjalan?\n");
+        return;
+    }
+    int pid;
+    fscanf(fp, "%d", &pid);
+    fclose(fp);
+    if (kill(pid, SIGTERM) == 0) {
+        printf("Daemon dengan PID %d dimatikan.\n", pid);
+        char timestamp[50];
+        get_timestamp(timestamp, sizeof(timestamp));
+        char log_msg[300];
+        strcpy(log_msg, "Shutdown:\n");
+        strcat(log_msg, timestamp);
+        strcat(log_msg, " - Successfully shut off decryption process with PID ");
+        {
+            char temp[30];
+            sprintf(temp, "%d", pid);
+            strcat(log_msg, temp);
+        }
+        strcat(log_msg, ".");
+        write_log(log_msg);
+        remove(PID_FILE);
+    } else {
+        perror("Gagal mematikan daemon");
+    }
+}
+```
+- untuk mematikan daemon, karna awalnya, ketika daemon dibuat, pid disimpan di file starterkit.pid, maka disini untuk mematikannya, `kill(pid, SIGTERM)`
+
 
 ## Soal_3
 ### A. Malware ini bekerja secara daemon dan menginfeksi perangkat korban dan menyembunyikan diri dengan mengganti namanya menjadi `/init`.
