@@ -734,6 +734,8 @@ void start_trojan() {
 Thread `loop_replicate` akan dijalankan oleh proses anak yang dinamai `trojan.wrm`.
 
 Output:
+
+
 ![runme](assets/trojan.png)
 
 ### D. Fitur ketiga bernama rodok.exe dirancang untuk menjalankan fork bomb, yaitu proses yang akan membuat banyak proses anak secara terus-menerus. Namun berbeda dari fork bomb biasa, setiap proses yang dibuat oleh rodok.exe berperan sebagai cryptominer palsu yang secara berkala menulis hash acak ke dalam log file.
@@ -787,6 +789,8 @@ void *mine_crafter(void *arg) {
 - Setiap hash dicatat bersamaan dengan timestamp dan ID proses miner.
 
 Output:
+
+
 ![miner.log](assets/miner.log.png)
 
 ### REVISI SOAL_3
@@ -843,22 +847,26 @@ int main(int argc, char *argv[]) {
 }
 ```
 
-Hasil Revisi
+##### Hasil Revisi
 Before:
+
 ![struktur awal](assets/revisi_struktur.png)
 
 After:
+
 ![Filtered](assets/revisi_struktur_1.png)
 
 #### Revisi wannacryptor untuk zip folder di directory (kelompok genap)
-Hasil Revisi
+##### Hasil Revisi
+
 ![zip folder](assets/zip.png)
 
 #### Revisi membunuh rodok.exe maka proses anaknya (mine-crafter) juga ikut berhenti
-Hasil Revisi
+##### Hasil Revisi
 
 After:
-![rodok after](assets/pkill_rodok.exe.png.png)
+
+![rodok after](assets/rodok.png)
 
 ## Soal_4
 
