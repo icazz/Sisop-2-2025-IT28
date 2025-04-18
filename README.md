@@ -1,4 +1,4 @@
-# Laporan Praktikum IT28 Modul 2
+![image](https://github.com/user-attachments/assets/b8ddf883-2446-4c83-8752-62f054a70fc2)# Laporan Praktikum IT28 Modul 2
 ## Anggota Kelompok
 | No |             Nama              |     NRP     |
 |----|-------------------------------|-------------|
@@ -566,6 +566,16 @@ void shutdown_daemon() {
 }
 ```
 - untuk mematikan daemon, karna awalnya, ketika daemon dibuat, pid disimpan di file starterkit.pid, maka disini untuk mematikannya, `kill(pid, SIGTERM)`
+----------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------REVISI SOAL_2----------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------
+![revisisoal2modul2](https://github.com/user-attachments/assets/693ee46e-184f-4ec1-b831-32d42384972d)
+menggunakan openssl untuk decrypt nya
+```
+#include <openssl/bio.h>
+#include <openssl/evp.h>
+```
+
 
 
 ## Soal_3
