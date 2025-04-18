@@ -577,6 +577,7 @@ menggunakan openssl untuk decrypt nya
 ### referensi
 ![refeerensi_decrypt](https://github.com/user-attachments/assets/59fb1ae3-2963-4798-8874-8bc77bcec806)
 
+### Compilenya menggunakan gcc starterkit_ref.c -o starterkit_ref -lcrypto
 
 
 
