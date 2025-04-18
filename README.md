@@ -1,4 +1,3 @@
-![image](https://github.com/user-attachments/assets/b8ddf883-2446-4c83-8752-62f054a70fc2)# Laporan Praktikum IT28 Modul 2
 ## Anggota Kelompok
 | No |             Nama              |     NRP     |
 |----|-------------------------------|-------------|
@@ -575,6 +574,9 @@ menggunakan openssl untuk decrypt nya
 #include <openssl/bio.h>
 #include <openssl/evp.h>
 ```
+### referensi
+![refeerensi_decrypt](https://github.com/user-attachments/assets/59fb1ae3-2963-4798-8874-8bc77bcec806)
+
 
 
 
